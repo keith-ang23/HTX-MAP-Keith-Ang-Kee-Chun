@@ -1,0 +1,229 @@
+# HTX xData AIE Technical Assessment
+
+This repository contains an Automatic Speech Recognition (ASR) service,
+Common Voice transcription workflow, Elasticsearch backend, Search UI, and
+AWS deployment design for the HTX xData technical assessment.
+
+## Current status
+
+Repository and Python environment setup are complete. The ASR service
+provides health-check and Wav2Vec2 transcription endpoints.
+
+## Prerequisites
+
+- Git
+- Python 3.11
+- Docker Desktop with Docker Compose
+- Node.js 24 or another supported LTS release
+- At least 8 GB of memory allocated to Docker
+
+The development environment used for this submission is Windows with Git
+Bash, WSL 2, Python 3.11.15, and Docker Desktop.
+
+## Python setup
+
+From the repository root, create a Python 3.11 virtual environment:
+
+```bash
+python3.11 -m venv .venv
+```
+
+Activate the environment in Git Bash:
+
+```bash
+source .venv/Scripts/activate
+```
+
+Install the Python dependencies:
+
+```bash
+python -m pip install --upgrade pip
+python -m pip install -r requirements.txt
+```
+
+Confirm that the environment uses Python 3.11:
+
+```bash
+python --version
+python -c "import sys; print(sys.executable)"
+```
+
+## Project structure
+
+```text
+.
+|-- asr/                 # ASR API, batch decoder, and container definition
+|-- deployment-design/   # AWS architecture source and exported PDF
+|-- elastic-backend/     # Two-node Elasticsearch cluster and indexing script
+|-- search-ui/           # Search frontend and container definition
+|-- requirements.txt     # Pinned Python dependencies
+`-- README.md
+```
+
+Directories beyond `asr/` will be added as their assessment tasks are
+implemented.
+
+## ASR API
+
+Start the API from the repository root:
+
+```bash
+uvicorn asr.asr_api:app --host 0.0.0.0 --port 8001 --reload
+```
+
+The first startup downloads `facebook/wav2vec2-large-960h` from Hugging Face.
+The model is approximately 1.2 GB and is cached under `model_cache/`. Later
+startups reuse the cached files. The model is loaded once per API process.
+
+In another terminal, verify the health-check endpoint:
+
+```bash
+curl http://localhost:8001/ping
+```
+
+Expected response:
+
+```json
+{"message":"pong"}
+```
+
+Interactive API documentation is available at
+`http://localhost:8001/docs` while the service is running.
+
+Transcribe an MP3 file:
+
+```bash
+curl -X POST http://localhost:8001/asr \
+  -H "accept: application/json" \
+  -F "file=@asr/cv-valid-dev/sample-000000.mp3;type=audio/mpeg"
+```
+
+PowerShell users should run the same command with `curl.exe`.
+
+Example response:
+
+```json
+{
+  "transcription": "BEFORE HE HAD TIME TO ANSWER",
+  "duration": "20.7"
+}
+```
+
+Uploaded files are decoded as mono 16 kHz audio and deleted immediately after
+the request finishes, including when decoding or inference fails.
+
+Run the API tests:
+
+```bash
+python -m pytest asr/test_asr_api.py
+```
+
+## Services
+
+| Service | Local URL | Purpose |
+| --- | --- | --- |
+| ASR health check | `http://localhost:8001/ping` | Implemented |
+| ASR inference | `http://localhost:8001/asr` | Implemented |
+| Elasticsearch | `http://localhost:9200` | Store Common Voice records |
+| Search UI | `http://localhost:3000` | Search and filter transcriptions |
+
+Run instructions and verified curl examples will be added with each service.
+
+## Dataset
+
+The Common Voice audio files are intentionally excluded from Git because of
+their size. The supplied `common_voice.zip` archive was inspected and only the
+assessment's development subset was extracted under `asr/cv-valid-dev/`.
+
+The extracted dataset was validated with the following results:
+
+- 4,076 non-empty MP3 files
+- 4,076 rows in `cv-valid-dev.csv`
+- No duplicate CSV filenames
+- Every CSV filename maps to exactly one extracted MP3
+- Columns: `filename`, `text`, `up_votes`, `down_votes`, `age`, `gender`,
+  `accent`, and `duration`
+- Source audio decodes at 48 kHz and is resampled to 16 kHz by the ASR API
+
+Verify the local file count from Git Bash:
+
+```bash
+find asr/cv-valid-dev -maxdepth 1 -type f -name "*.mp3" | wc -l
+```
+
+Expected result:
+
+```text
+4076
+```
+
+Raw MP3 files remain ignored by Git. The final `cv-valid-dev.csv`, including
+the generated `generated_text` column, will be kept as a submission artifact.
+
+### Batch transcription
+
+Keep the ASR API running on port `8001`, then open a second terminal and run a
+one-file smoke test:
+
+```bash
+python asr/cv-decode.py --max-files 1
+```
+
+After confirming that the first row contains a transcription, process all
+remaining rows:
+
+```bash
+python asr/cv-decode.py
+```
+
+The decoder:
+
+- uploads each MP3 to `POST /asr`
+- adds the required `generated_text` column
+- fills the existing `duration` column from the API response
+- retries transient failures up to three times
+- saves an atomic checkpoint every 25 successful transcriptions
+- skips rows that already have `generated_text`, allowing interrupted runs to
+  resume safely
+
+A row is also considered complete when the API returned a duration but an
+empty transcription. This preserves a genuine empty Wav2Vec2 result instead
+of replacing it with reference text or retrying it indefinitely.
+
+Useful options:
+
+```bash
+# Reprocess every row, including completed rows
+python asr/cv-decode.py --overwrite
+
+# Use a different API deployment
+python asr/cv-decode.py --api-url http://example.com:8001/asr
+
+# Display all available options
+python asr/cv-decode.py --help
+```
+
+The script exits with status `1` if any rows fail after all retries. Failed
+rows remain blank and can be retried by running the same command again.
+
+## Deployment
+
+The solution will be deployed to AWS using self-managed containers. Managed
+cloud services will not be used.
+
+Public deployment URL: **Not deployed yet**
+
+## Assessment assumptions
+
+- References to `cs-valid-dev.csv` in Tasks 3 and 4 are treated as typographical
+  errors referring to `cv-valid-dev.csv`.
+- ASR input is converted to mono audio sampled at 16 kHz before inference.
+- The two Elasticsearch nodes may share one EC2 host for this assessment; this
+  satisfies the container requirement but does not provide host-level high
+  availability.
+
+## Security
+
+Do not commit credentials, `.env` files, downloaded model weights, raw audio,
+or temporary uploads. Cloud secrets will be provided through environment
+variables.

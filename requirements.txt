@@ -1,0 +1,14 @@
+elasticsearch==8.19.2
+fastapi==0.115.14
+httpx==0.28.1
+librosa==0.11.0
+pandas==2.3.3
+python-multipart==0.0.20
+requests==2.32.5
+soundfile==0.13.1
+torch==2.7.1
+transformers==4.57.6
+uvicorn[standard]==0.34.3
+
+# Test dependencies
+pytest==8.4.2

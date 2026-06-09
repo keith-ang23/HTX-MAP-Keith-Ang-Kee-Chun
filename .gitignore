@@ -1,0 +1,38 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+.venv/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+htmlcov/
+.coverage
+
+# Local configuration and secrets
+.env
+.env.*
+!.env.example
+
+# Model and application caches
+model_cache/
+.cache/
+huggingface/
+
+# Common Voice source audio is downloaded locally. Keep the generated CSV.
+asr/cv-valid-dev/*
+!asr/cv-valid-dev/.gitkeep
+!asr/cv-valid-dev/cv-valid-dev.csv
+*.mp3
+*.wav
+
+# Runtime files
+uploads/
+tmp/
+*.log
+
+# Editors and operating systems
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
