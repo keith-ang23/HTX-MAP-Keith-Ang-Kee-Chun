@@ -1,0 +1,16 @@
+.git
+.gitignore
+.venv
+__pycache__
+*.py[cod]
+.pytest_cache
+.env
+.env.*
+model_cache
+asr/cv-valid-dev
+*.mp3
+*.wav
+*.csv
+deployment-design
+elastic-backend
+search-ui

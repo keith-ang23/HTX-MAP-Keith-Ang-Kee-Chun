@@ -118,6 +118,175 @@ Run the API tests:
 python -m pytest asr/test_asr_api.py
 ```
 
+### Docker
+
+The ASR service is containerized with Python 3.11, CPU-only PyTorch, FFmpeg,
+and an unprivileged runtime user. Build and start the `asr-api` service from
+the repository root:
+
+```bash
+docker compose -f asr/docker-compose.yml up --build -d
+```
+
+The first startup downloads the Wav2Vec2 model into the persistent
+`htx-asr-model-cache` Docker volume. Monitor startup with:
+
+```bash
+docker compose -f asr/docker-compose.yml logs -f asr-api
+```
+
+Wait until the container reports `healthy`:
+
+```bash
+docker compose -f asr/docker-compose.yml ps
+```
+
+Test the container:
+
+```bash
+curl http://localhost:8001/ping
+
+curl -X POST http://localhost:8001/asr \
+  -F "file=@asr/cv-valid-dev/sample-000000.mp3;type=audio/mpeg"
+```
+
+Expected transcription response:
+
+```json
+{
+  "transcription": "BE CAREFUL WITH YOUR PROGNOSTICATIONS SAID THE STRANGER",
+  "duration": "5.1"
+}
+```
+
+Verify that processed MP3 uploads are deleted from the container:
+
+```bash
+docker exec asr-api sh -c \
+  "find /tmp -maxdepth 1 -type f -name '*.mp3' | wc -l"
+```
+
+The expected count after a request is `0`.
+
+Test restart behavior:
+
+```bash
+docker restart asr-api
+docker compose -f asr/docker-compose.yml ps
+curl http://localhost:8001/ping
+```
+
+Stop and remove the container without deleting the cached model:
+
+```bash
+docker compose -f asr/docker-compose.yml down
+```
+
+To deliberately remove the model cache as well:
+
+```bash
+docker compose -f asr/docker-compose.yml down --volumes
+```
+
+#### Docker command reference
+
+Start the service and rebuild its image:
+
+```bash
+docker compose -f asr/docker-compose.yml up --build -d
+```
+
+- `docker compose` manages services defined in a Compose YAML file.
+- `-f asr/docker-compose.yml` selects the Compose file; here `-f` means
+  **file**.
+- `up` creates and starts the service, network, and volume.
+- `--build` rebuilds the image before starting the service.
+- `-d` uses detached mode so the container runs in the background.
+
+Build the image without starting a container:
+
+```bash
+docker compose -f asr/docker-compose.yml build
+```
+
+- `build` creates or updates the image defined by the Compose service.
+
+Start the existing image without requesting a rebuild:
+
+```bash
+docker compose -f asr/docker-compose.yml up -d
+```
+
+Follow the service logs:
+
+```bash
+docker compose -f asr/docker-compose.yml logs -f asr-api
+```
+
+- `logs` displays container output.
+- `-f` after `logs` means **follow**, so new log lines remain visible.
+- `asr-api` limits the output to that service.
+- Press `Ctrl+C` to stop following logs; the detached container keeps running.
+
+The meaning of `-f` depends on its position:
+
+```text
+docker compose -f FILE  -> select a Compose file
+docker compose logs -f  -> follow new log output
+```
+
+Display the service status, health, and published ports:
+
+```bash
+docker compose -f asr/docker-compose.yml ps
+```
+
+- `ps` lists the containers belonging to the Compose project.
+
+Run the temporary-file check inside the running container:
+
+```bash
+docker exec asr-api sh -c \
+  "find /tmp -maxdepth 1 -type f -name '*.mp3' | wc -l"
+```
+
+- `docker exec` runs a command inside an existing container.
+- `asr-api` is the container name.
+- `sh -c` asks the shell to execute the following quoted command.
+- `find /tmp` searches the temporary directory.
+- `-maxdepth 1` prevents searching nested directories.
+- `-type f` selects regular files.
+- `-name '*.mp3'` selects MP3 files.
+- `|` passes the matches to the next command.
+- `wc -l` counts the matching files.
+
+Restart the existing container:
+
+```bash
+docker restart asr-api
+```
+
+- `restart` stops and starts the named container.
+- Restarting does not rebuild the image or delete the model-cache volume.
+
+Stop and remove the Compose container and network:
+
+```bash
+docker compose -f asr/docker-compose.yml down
+```
+
+- `down` removes the project containers and network.
+- The built image and named model-cache volume remain available.
+
+Stop the project and also delete its named volumes:
+
+```bash
+docker compose -f asr/docker-compose.yml down --volumes
+```
+
+- `--volumes` also removes `htx-asr-model-cache`.
+- Deleting this volume causes the model to download again on the next startup.
+
 ## Services
 
 | Service | Local URL | Purpose |

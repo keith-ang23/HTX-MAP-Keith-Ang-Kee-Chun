@@ -1,0 +1,29 @@
+services:
+  asr-api:
+    build:
+      context: ..
+      dockerfile: asr/Dockerfile
+    image: htx-asr-api:latest
+    container_name: asr-api
+    ports:
+      - "8001:8001"
+    environment:
+      ASR_MODEL_ID: facebook/wav2vec2-large-960h
+      ASR_MODEL_CACHE_DIR: /app/model_cache
+      HF_HUB_DISABLE_XET: "1"
+    volumes:
+      - asr-model-cache:/app/model_cache
+    healthcheck:
+      test: ["CMD", "curl", "--fail", "--silent", "http://localhost:8001/ping"]
+      interval: 30s
+      timeout: 5s
+      start_period: 5m
+      retries: 3
+    restart: unless-stopped
+    mem_limit: 5g
+    mem_reservation: 3g
+    cpus: 4
+
+volumes:
+  asr-model-cache:
+    name: htx-asr-model-cache
