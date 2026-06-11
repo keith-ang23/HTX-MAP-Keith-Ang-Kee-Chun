@@ -2,13 +2,14 @@ services:
   asr-api:
     container_name: asr-api
     image: htx-asr-api:latest
+    restart: unless-stopped
     build:
       context: .
       dockerfile: asr/Dockerfile
     ports:
       - "8001:8001"
     environment:
-      ASR_MODEL_ID: facebook/wav2vec2-large-960h
+      ASR_MODEL_ID: ${ASR_MODEL_ID:-facebook/wav2vec2-large-960h}
       ASR_MODEL_CACHE_DIR: /app/model_cache
     volumes:
       - asr-model-cache:/app/model_cache
@@ -19,13 +20,14 @@ services:
       start_period: 5m
       retries: 3
     mem_limit: 5g
-    cpus: 4
+    cpus: 2
     networks:
       - htx-stack
 
   es01:
     container_name: es01
     image: docker.elastic.co/elasticsearch/elasticsearch:8.19.2
+    restart: unless-stopped
     environment:
       - node.name=es01
       - cluster.name=htx-cv-cluster
@@ -60,6 +62,7 @@ services:
   es02:
     container_name: es02
     image: docker.elastic.co/elasticsearch/elasticsearch:8.19.2
+    restart: unless-stopped
     environment:
       - node.name=es02
       - cluster.name=htx-cv-cluster
@@ -92,6 +95,7 @@ services:
   search-ui:
     container_name: search-ui
     image: htx-search-ui:latest
+    restart: unless-stopped
     build:
       context: ./search-ui
       dockerfile: Dockerfile
@@ -100,7 +104,7 @@ services:
     environment:
       PORT: 3000
       ELASTICSEARCH_HOST: http://es01:9200
-      ELASTICSEARCH_INDEX: cv-transcriptions
+      ELASTICSEARCH_INDEX: ${ELASTICSEARCH_INDEX:-cv-transcriptions}
     depends_on:
       es01:
         condition: service_healthy
