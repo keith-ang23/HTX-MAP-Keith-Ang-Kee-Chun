@@ -642,6 +642,130 @@ To remove the stored Elasticsearch data as well:
 docker compose -f elastic-backend/docker-compose.yml down --volumes
 ```
 
+## Search UI
+
+The Search UI is a minimal React application built with Elastic Search UI. It
+provides:
+
+- full-text search over `generated_text`
+- duration range filters
+- exact age, gender, and accent filters
+- result cards showing filename, transcription, duration, and metadata
+- ten results per page with pagination
+- loading, empty-result, and error states
+- responsive desktop and mobile layouts
+
+### Architecture
+
+The browser communicates only with the Search UI container:
+
+```text
+Browser :3000
+    |
+    | POST /api/search
+    v
+Express proxy in search-ui container
+    |
+    | private Docker network
+    v
+Elasticsearch es01:9200
+```
+
+The React client uses Elastic's `ApiProxyConnector`. The Express server uses
+`ElasticsearchAPIConnector` and a server-owned query configuration. Browser
+requests are sanitized to allow only:
+
+- search terms up to 200 characters
+- 10, 20, or 50 results per page
+- filters for `duration`, `age`, `gender`, and `accent`
+
+The Elasticsearch hostname and any future credentials remain server-side.
+The browser bundle does not contain `es01:9200` or a public Elasticsearch URL.
+
+### Run with Docker
+
+Start and index Elasticsearch first:
+
+```bash
+docker compose -f elastic-backend/docker-compose.yml up -d
+python elastic-backend/cv-index.py
+```
+
+The Elasticsearch Compose project creates the external
+`htx-elastic-network` used by Search UI.
+
+Build and start Search UI:
+
+```bash
+docker compose -f search-ui/docker-compose.yml up --build -d
+```
+
+Check container health:
+
+```bash
+docker compose -f search-ui/docker-compose.yml ps
+curl "http://localhost:3000/api/health"
+```
+
+Open the application:
+
+```text
+http://localhost:3000
+```
+
+Example searches:
+
+- `prognostications` for full-text matching
+- accent `singapore` for one exact filter result
+- duration `5 to 10 seconds` for a numeric range filter
+- combined search and filters for narrower results
+
+Stop Search UI:
+
+```bash
+docker compose -f search-ui/docker-compose.yml down
+```
+
+### Local development
+
+Install dependencies and run tests:
+
+```bash
+cd search-ui
+npm install
+npm test
+```
+
+Start the Express proxy on port `3001`:
+
+```bash
+PORT=3001 npm start
+```
+
+In a second terminal, start Vite on port `3000`:
+
+```bash
+cd search-ui
+npm run dev
+```
+
+Vite proxies `/api` requests to port `3001`. On PowerShell, set the proxy port
+with:
+
+```powershell
+$env:PORT = "3001"
+npm start
+```
+
+Create the production frontend build:
+
+```bash
+npm run build
+```
+
+The production container serves the compiled React application and proxy from
+the same Express process on port `3000`.
+
 ## Deployment
 
 The solution will be deployed to AWS using self-managed containers. Managed

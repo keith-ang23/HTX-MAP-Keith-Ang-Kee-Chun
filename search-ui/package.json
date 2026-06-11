@@ -1,0 +1,25 @@
+{
+  "name": "htx-common-voice-search-ui",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "start": "node server.js",
+    "test": "node --test"
+  },
+  "dependencies": {
+    "@elastic/react-search-ui": "1.24.2",
+    "@elastic/search-ui": "1.24.2",
+    "@elastic/search-ui-elasticsearch-connector": "1.24.2",
+    "express": "5.2.1",
+    "react": "19.2.7",
+    "react-dom": "19.2.7"
+  },
+  "devDependencies": {
+    "@vitejs/plugin-react": "6.0.2",
+    "supertest": "7.1.4",
+    "vite": "8.0.16"
+  }
+}
