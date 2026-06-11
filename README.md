@@ -766,6 +766,35 @@ npm run build
 The production container serves the compiled React application and proxy from
 the same Express process on port `3000`.
 
+## Integrated local deployment
+
+The root `docker-compose.yml` starts the complete assessment stack on the
+shared `htx-stack-network`:
+
+- ASR API at `http://localhost:8001`
+- Two-node Elasticsearch cluster at `http://localhost:9200`
+- Search UI and server-side proxy at `http://localhost:3000`
+
+Start and build the complete stack from the repository root:
+
+```bash
+docker compose up --build -d
+docker compose ps
+```
+
+The Compose file reuses the named ASR model-cache and Elasticsearch data
+volumes, so restarting the stack does not normally download the model or erase
+the index.
+
+Stop the stack while retaining the model and index data:
+
+```bash
+docker compose down
+```
+
+Do not add `--volumes` unless you deliberately want to delete the downloaded
+model cache and both Elasticsearch data volumes.
+
 ## Deployment
 
 The solution will be deployed to AWS using self-managed containers. Managed

@@ -30,6 +30,7 @@ asr/cv-valid-dev/*
 uploads/
 tmp/
 *.log
+evidence/runs/
 
 # Editors and operating systems
 .vscode/
@@ -41,3 +42,7 @@ Thumbs.db
 node_modules/
 dist/
 npm-debug.log*
+
+# Evidence files
+evidence/
+scripts/
