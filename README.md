@@ -375,6 +375,113 @@ python asr/cv-decode.py --help
 The script exits with status `1` if any rows fail after all retries. Failed
 rows remain blank and can be retried by running the same command again.
 
+## Elasticsearch backend
+
+The backend runs Elasticsearch `8.19.2` as a two-node cluster:
+
+- `es01` exposes `http://localhost:9200`
+- `es02` is available only inside the Docker network
+- each node uses a constrained 512 MB JVM heap and a 1.5 GB container limit
+- each node stores data in its own persistent Docker volume
+- the index uses one primary shard and one replica
+- security is disabled for local assessment use, and port `9200` is bound only
+  to `127.0.0.1`
+
+Start both nodes from the repository root:
+
+```bash
+docker compose -f elastic-backend/docker-compose.yml up -d
+```
+
+Check that both nodes are healthy:
+
+```bash
+docker compose -f elastic-backend/docker-compose.yml ps
+
+curl "http://localhost:9200/_cluster/health?pretty"
+```
+
+Create `cv-transcriptions` and bulk-index all 4,076 CSV records:
+
+```bash
+python elastic-backend/cv-index.py
+```
+
+The default run deletes and recreates the index. To keep the existing index
+and overwrite documents using deterministic filename-based IDs:
+
+```bash
+python elastic-backend/cv-index.py --no-recreate
+```
+
+Indexer options:
+
+| Option | Default | Purpose |
+| --- | --- | --- |
+| `--csv` | `elastic-backend/cv-valid-dev.csv` | CSV source file |
+| `--url` | `http://localhost:9200` | Elasticsearch endpoint |
+| `--index` | `cv-transcriptions` | Target index name |
+| `--chunk-size` | `500` | Documents per bulk request |
+| `--no-recreate` | disabled | Preserve the index and upsert stable IDs |
+
+The explicit mappings include:
+
+| Field | Elasticsearch type |
+| --- | --- |
+| `generated_text` | `text` |
+| `duration` | `float` |
+| `age` | `keyword` |
+| `gender` | `keyword` |
+| `accent` | `keyword` |
+
+Verify the document count:
+
+```bash
+curl "http://localhost:9200/cv-transcriptions/_count?pretty"
+```
+
+Search generated transcriptions:
+
+```bash
+curl -X POST "http://localhost:9200/cv-transcriptions/_search?pretty" \
+  -H "Content-Type: application/json" \
+  -d '{"query":{"match":{"generated_text":"prognostications"}}}'
+```
+
+Filter by a keyword field:
+
+```bash
+curl -X POST "http://localhost:9200/cv-transcriptions/_count?pretty" \
+  -H "Content-Type: application/json" \
+  -d '{"query":{"term":{"accent":"singapore"}}}'
+```
+
+Filter by duration:
+
+```bash
+curl -X POST "http://localhost:9200/cv-transcriptions/_count?pretty" \
+  -H "Content-Type: application/json" \
+  -d '{"query":{"range":{"duration":{"gte":5.0,"lte":6.0}}}}'
+```
+
+Run the indexer unit tests:
+
+```bash
+python -m pytest elastic-backend/test_cv_index.py
+```
+
+Stop the cluster while retaining both data volumes:
+
+```bash
+docker compose -f elastic-backend/docker-compose.yml down
+```
+
+To remove the stored Elasticsearch data as well:
+
+```bash
+docker compose -f elastic-backend/docker-compose.yml down --volumes
+```
+
 ## Deployment
 
 The solution will be deployed to AWS using self-managed containers. Managed
