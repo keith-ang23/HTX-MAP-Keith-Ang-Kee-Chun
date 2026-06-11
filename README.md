@@ -795,12 +795,18 @@ docker compose down
 Do not add `--volumes` unless you deliberately want to delete the downloaded
 model cache and both Elasticsearch data volumes.
 
-## Deployment
+## Public Deployment
 
 The solution will be deployed to AWS using self-managed containers. Managed
 cloud services will not be used.
 
-Public deployment URL: **Not deployed yet**
+Search UI:
+
+http://13.251.154.217:3000
+
+ASR API health check:
+
+http://13.251.154.217:8001/ping
 
 ## Assessment assumptions
 
