@@ -440,6 +440,89 @@ Verify the document count:
 curl "http://localhost:9200/cv-transcriptions/_count?pretty"
 ```
 
+### Elasticsearch endpoint guide
+
+Elasticsearch uses different endpoints depending on whether you need cluster
+information, index metadata, a count, or matching documents.
+
+| Endpoint | Purpose | Returns matching documents? |
+| --- | --- | --- |
+| `/` | Elasticsearch version and node information | No |
+| `/_cluster/health` | Cluster status and node/shard health | No |
+| `/_cat/nodes` | Compact list of cluster nodes | No |
+| `/_cat/indices` | Compact list of indices and document counts | No |
+| `/cv-transcriptions/_mapping` | Field names and Elasticsearch data types | No |
+| `/cv-transcriptions/_count` | Number of documents matching a query | No |
+| `/cv-transcriptions/_search` | Matching documents, scores, and `_source` data | Yes |
+
+Check that Elasticsearch is reachable:
+
+```bash
+curl "http://localhost:9200/?pretty"
+```
+
+Check cluster health:
+
+```bash
+curl "http://localhost:9200/_cluster/health?pretty"
+```
+
+List both Elasticsearch nodes:
+
+```bash
+curl "http://localhost:9200/_cat/nodes?v"
+```
+
+List indices and stored document counts:
+
+```bash
+curl "http://localhost:9200/_cat/indices?v"
+```
+
+Inspect the explicit field mappings:
+
+```bash
+curl "http://localhost:9200/cv-transcriptions/_mapping?pretty"
+```
+
+Use `_count` when only the number of matching records is needed. It does not
+return filenames or document contents:
+
+```bash
+curl -X POST "http://localhost:9200/cv-transcriptions/_count?pretty" \
+  -H "Content-Type: application/json" \
+  -d '{"query":{"term":{"accent":"singapore"}}}'
+```
+
+Use `_search` when the matching audio filename and indexed data are needed:
+
+```bash
+curl -X POST "http://localhost:9200/cv-transcriptions/_search?pretty" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "_source": ["filename", "accent", "generated_text", "duration"],
+    "query": {
+      "term": {
+        "accent": "singapore"
+      }
+    }
+  }'
+```
+
+The returned records are located under:
+
+```text
+hits.hits
+```
+
+Each result contains its deterministic `_id`, relevance `_score`, and indexed
+fields under `_source`.
+
+### Search query types
+
+Use `match` for analyzed full-text fields such as `generated_text` and `text`.
+Elasticsearch analyzes the query into words and calculates relevance scores:
+
 Search generated transcriptions:
 
 ```bash
@@ -448,20 +531,97 @@ curl -X POST "http://localhost:9200/cv-transcriptions/_search?pretty" \
   -d '{"query":{"match":{"generated_text":"prognostications"}}}'
 ```
 
-Filter by a keyword field:
+Use `term` for an exact value in keyword fields such as `age`, `gender`, and
+`accent`. Keyword matching is exact and case-sensitive:
 
 ```bash
-curl -X POST "http://localhost:9200/cv-transcriptions/_count?pretty" \
+curl -X POST "http://localhost:9200/cv-transcriptions/_search?pretty" \
   -H "Content-Type: application/json" \
-  -d '{"query":{"term":{"accent":"singapore"}}}'
+  -d '{
+    "_source": ["filename", "gender", "generated_text"],
+    "query": {
+      "term": {
+        "gender": "female"
+      }
+    }
+  }'
 ```
 
-Filter by duration:
+Use `range` for numeric fields such as `duration`:
 
 ```bash
-curl -X POST "http://localhost:9200/cv-transcriptions/_count?pretty" \
+curl -X POST "http://localhost:9200/cv-transcriptions/_search?pretty" \
   -H "Content-Type: application/json" \
-  -d '{"query":{"range":{"duration":{"gte":5.0,"lte":6.0}}}}'
+  -d '{
+    "_source": ["filename", "duration", "generated_text"],
+    "query": {
+      "range": {
+        "duration": {
+          "gte": 5.0,
+          "lte": 6.0
+        }
+      }
+    }
+  }'
+```
+
+The range operators are:
+
+| Operator | Meaning |
+| --- | --- |
+| `gt` | greater than |
+| `gte` | greater than or equal to |
+| `lt` | less than |
+| `lte` | less than or equal to |
+
+Use a `bool` query to combine full-text search with exact filters:
+
+```bash
+curl -X POST "http://localhost:9200/cv-transcriptions/_search?pretty" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "_source": ["filename", "accent", "duration", "generated_text"],
+    "query": {
+      "bool": {
+        "must": [
+          {"match": {"generated_text": "the boy"}}
+        ],
+        "filter": [
+          {"term": {"accent": "us"}},
+          {"range": {"duration": {"lte": 6.0}}}
+        ]
+      }
+    }
+  }'
+```
+
+- `must` contains full-text conditions that affect relevance `_score`.
+- `filter` contains exact constraints that do not affect relevance.
+- `_source` limits the fields returned, making results easier to read.
+
+List available filter values and their document counts with an aggregation:
+
+```bash
+curl -X POST "http://localhost:9200/cv-transcriptions/_search?pretty" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "size": 0,
+    "aggs": {
+      "available_accents": {
+        "terms": {
+          "field": "accent",
+          "size": 20
+        }
+      }
+    }
+  }'
+```
+
+`"size": 0` hides document hits because this request only needs aggregation
+results. Accent values and counts appear under:
+
+```text
+aggregations.available_accents.buckets
 ```
 
 Run the indexer unit tests:
