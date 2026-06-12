@@ -4,16 +4,31 @@ This repository contains an Automatic Speech Recognition (ASR) service,
 Common Voice transcription workflow, Elasticsearch backend, Search UI, and
 AWS deployment design for the HTX xData technical assessment.
 
-## Current status
+## Contents
 
-All assessment components are implemented:
-
-- FastAPI ASR service using `facebook/wav2vec2-large-960h`
-- resumable Common Voice batch transcription
-- two-node Elasticsearch backend and repeatable bulk indexer
-- React Search UI with an Express Elasticsearch proxy
-- root Docker Compose deployment for the complete stack
-- AWS EC2 deployment with persistent data and container restart policies
+- [Prerequisites](#prerequisites)
+- [Python setup](#python-setup)
+- [Project structure](#project-structure)
+- [ASR API](#asr-api)
+- [ASR Docker deployment](#docker)
+- [Docker command reference](#docker-command-reference)
+- [Services](#services)
+- [Dataset](#dataset)
+- [Batch transcription](#batch-transcription)
+- [Elasticsearch backend](#elasticsearch-backend)
+- [Elasticsearch endpoint guide](#elasticsearch-endpoint-guide)
+- [Search query types](#search-query-types)
+- [Search UI](#search-ui)
+- [Search UI architecture](#architecture)
+- [Run Search UI with Docker](#run-with-docker)
+- [Search UI local development](#local-development)
+- [Integrated local deployment](#integrated-local-deployment)
+- [Test suites](#test-suites)
+- [Public deployment](#public-deployment)
+- [Public deployment architecture](#architecture-1)
+- [EC2 startup and reboot verification](#ec2-startup-and-reboot-verification)
+- [Assessment assumptions](#assessment-assumptions)
+- [Security](#security)
 
 ## Prerequisites
 
@@ -53,6 +68,43 @@ Confirm that the environment uses Python 3.11:
 python --version
 python -c "import sys; print(sys.executable)"
 ```
+
+A Python virtual environment is required when Python files are run directly on
+the development computer or EC2 host. This applies to commands such as:
+
+```bash
+uvicorn asr.asr_api:app --host 0.0.0.0 --port 8001
+python asr/cv-decode.py
+python elastic-backend/cv-index.py
+python -m pytest
+```
+
+The virtual environment keeps the versions from `requirements.txt` isolated
+from the operating system's Python installation and from packages used by
+other projects.
+
+A host-side Python virtual environment is not required for the ASR API when it
+runs through Docker. The ASR image already contains Python 3.11 and its pinned
+dependencies in an isolated container filesystem. Therefore, this command does
+not depend on the host `.venv`:
+
+```bash
+docker compose up --build -d
+```
+
+The host environment is still needed when running supporting Python scripts
+outside the containers. For example, the EC2 deployment uses a small
+`.deploy-venv` to run the host-side Elasticsearch indexer:
+
+```bash
+python3 -m venv .deploy-venv
+.deploy-venv/bin/pip install elasticsearch==8.19.2
+.deploy-venv/bin/python elastic-backend/cv-index.py
+```
+
+Creating `.venv` is therefore necessary for local development, testing, batch
+transcription, or indexing, but optional when only starting and using the
+already-containerized services.
 
 ## Project structure
 
@@ -871,7 +923,7 @@ volumes, and `vm.max_map_count=262144` for Elasticsearch. Elasticsearch port
 
 ### Architecture
 
-[View the AWS deployment architecture diagram](deployment-design/asr-deployment-design.drawio.pdf).
+[View the AWS deployment architecture diagram](deployment-design/design.pdf).
 
 The diagram presents both the deployed runtime services and the data
 preparation/indexing workflow:
@@ -988,6 +1040,14 @@ docker compose start
   Elasticsearch hostname, future credentials, searchable fields, result
   fields, and permitted facets remain under server control instead of being
   exposed or trusted to the browser.
+- The requirement that `generated_text`, `duration`, `age`, `gender`, and
+  `accent` can be searched is interpreted according to each field's data type
+  and intended use. `generated_text` is implemented as the analyzed full-text
+  search field because users enter words and phrases from transcriptions.
+  `duration` is implemented as a numeric range filter, while `age`, `gender`,
+  and `accent` are exact-value filters. This still allows users to query and
+  narrow results using all five required fields without applying text analysis
+  to numeric or categorical metadata.
 - The public deployment uses one AWS `m7i-flex.large` instance because it is a
   credit-eligible general-purpose instance with 2 vCPUs and 8 GiB RAM. Two
   vCPUs provide the compute used by CPU-only ASR inference, while 8 GiB RAM is
