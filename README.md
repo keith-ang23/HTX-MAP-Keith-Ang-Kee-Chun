@@ -28,6 +28,11 @@ AWS deployment design for the HTX xData technical assessment.
   - [Architecture](#architecture-1)
   - [EC2 startup and reboot verification](#ec2-startup-and-reboot-verification)
 - [Assessment assumptions](#assessment-assumptions)
+  - [Dataset interpretation](#dataset-interpretation)
+  - [ASR service](#asr-service)
+  - [Elasticsearch](#elasticsearch)
+  - [Search UI interpretation](#search-ui-interpretation)
+  - [AWS deployment resources](#aws-deployment-resources)
 - [Security](#security)
 
 ## Prerequisites
@@ -992,98 +997,74 @@ docker compose start
 
 ## Assessment assumptions
 
-- References to `cs-valid-dev.csv` in Tasks 3 and 4 are treated as typographical
-  errors referring to `cv-valid-dev.csv`.
-- ASR input is converted to mono audio sampled at 16 kHz before inference.
-- The ASR container uses Python 3.11 because the selected PyTorch,
-  Transformers, librosa, and FastAPI versions have stable compatible releases
-  for that interpreter. CPU-only PyTorch avoids CUDA libraries and GPU
-  requirements because the target AWS instance has no GPU. FFmpeg provides
-  reliable MP3 decoding before librosa resamples the audio. The API runs as an
-  unprivileged user so a compromised process does not receive root permissions
-  inside the container.
-- A CSV row is considered complete when the API returns a valid duration even
-  if `generated_text` is empty. An empty string can be a genuine Wav2Vec2 CTC
-  inference result, so the decoder preserves it instead of substituting the
-  reference transcript or retrying the same valid response indefinitely.
-- The two Elasticsearch nodes may share one EC2 host for this assessment; this
-  satisfies the container requirement but does not provide host-level high
-  availability.
-- The ASR container has a 5 GiB memory limit because Wav2Vec2 model weights,
-  PyTorch tensors, decoded audio, inference activations, and Python runtime
-  memory can coexist during a request. The value provides headroom for model
-  loading and inference while still placing a defined ceiling on the largest
-  service in the shared 8 GiB host. This is a maximum limit rather than memory
-  reserved permanently by the container.
-- The ASR container is limited to 2 CPUs because `m7i-flex.large` provides two
-  vCPUs and inference is CPU-only. Allowing the service to use both vCPUs makes
-  the available compute capacity usable during transcription while Docker and
-  the operating system continue to schedule the other lightweight services.
-- Each Elasticsearch node uses a fixed 512 MiB JVM heap because the assessment
-  index contains only 4,076 documents and does not require a large search or
-  aggregation heap. Setting the minimum and maximum heap to the same value
-  provides predictable JVM memory use and avoids heap resizing while both
-  nodes share the EC2 instance.
-- Each Elasticsearch node has a 1.5 GiB container memory limit because
-  Elasticsearch also uses native memory, thread stacks, direct buffers, and
-  the operating-system file cache outside its 512 MiB JVM heap. The additional
-  capacity supports those non-heap requirements while keeping the two-node
-  cluster within the host's memory budget.
-- The Search UI container has a 512 MiB memory limit because it serves a
-  compiled React bundle and runs one lightweight Express proxy process. The
-  limit provides sufficient space for Node.js, HTTP request handling, and
-  short-lived Elasticsearch response objects while preventing the UI from
-  competing materially with ASR and Elasticsearch.
-- The React client uses Elastic's `ApiProxyConnector` so browser searches are
-  sent only to the application-owned `/api` endpoint. The Express server uses
-  `ElasticsearchAPIConnector` with a server-owned query configuration so the
-  Elasticsearch hostname, future credentials, searchable fields, result
-  fields, and permitted facets remain under server control instead of being
-  exposed or trusted to the browser.
-- The requirement that `generated_text`, `duration`, `age`, `gender`, and
-  `accent` can be searched is interpreted according to each field's data type
-  and intended use. `generated_text` is implemented as the analyzed full-text
-  search field because users enter words and phrases from transcriptions.
-  `duration` is implemented as a numeric range filter, while `age`, `gender`,
-  and `accent` are exact-value filters. This still allows users to query and
-  narrow results using all five required fields without applying text analysis
-  to numeric or categorical metadata.
-- The public deployment uses one AWS `m7i-flex.large` instance because it is a
-  credit-eligible general-purpose instance with 2 vCPUs and 8 GiB RAM. Two
-  vCPUs provide the compute used by CPU-only ASR inference, while 8 GiB RAM is
-  sufficient to run the model, two deliberately constrained Elasticsearch
-  nodes, the Search UI, Docker, and Ubuntu for this assessment workload.
-- Ubuntu 24.04 LTS is used because it is a current long-term-support release
-  with security updates and supported Docker packages throughout the
-  assessment period.
-- The EC2 host has an 8 GiB swap file because concurrent model loading,
-  Elasticsearch startup, and Docker build activity can temporarily create
-  memory pressure near the host's 8 GiB physical-RAM capacity. Swap supplies
-  emergency backing memory that reduces the chance of the Linux
-  out-of-memory process terminating a container. It is safety headroom rather
-  than normal working memory because disk-backed swap is slower than RAM.
-- The root EBS volume is 40 GiB because it must contain Ubuntu, Docker's image
-  and build layers, Python and Node dependencies, the approximately 1.2 GB ASR
-  model cache, the repository, and both Elasticsearch data volumes. The size
-  also leaves working space for image extraction, package installation, logs,
-  and updates during deployment.
-- The EBS volume uses `gp3` with its baseline 3,000 IOPS and 125 MiB/s
-  throughput because the assessment performs small-index reads and writes,
-  model loading, and Docker build operations that fit general-purpose SSD
-  performance. Keeping the baseline settings provides predictable storage
-  performance without adding provisioned-performance cost.
-- Three persistent Docker volumes are used because each stateful data owner
-  needs an independent lifecycle: `htx-asr-model-cache` retains downloaded
-  model files, while `htx-es01-data` and `htx-es02-data` retain the data for
-  their respective Elasticsearch nodes across container and EC2 restarts.
-- `vm.max_map_count` is set to `262144` because Elasticsearch uses many
-  memory-mapped regions for Lucene index files. This value satisfies the
-  Elasticsearch host prerequisite and allows both nodes to start reliably on
-  Ubuntu.
-- These resource values were selected as a complete budget for the
-  credit-conscious, single-instance AWS assessment deployment. They are
-  suitable for the 4,076-record dataset and light demonstration traffic, not
-  a production-scale or highly available workload.
+### Dataset interpretation
+
+| Assumption | Interpretation | Rationale |
+| --- | --- | --- |
+| CSV filename | References to `cs-valid-dev.csv` in Tasks 3 and 4 mean `cv-valid-dev.csv`. | The supplied dataset and the other assessment instructions consistently use the `cv-valid-dev` name. |
+| Completed row | A row is complete when the API returns a valid duration, even if `generated_text` is empty. | An empty string can be a genuine Wav2Vec2 CTC result. It is preserved instead of being replaced with reference text or retried indefinitely. |
+
+### ASR service
+
+| Choice | Value | Rationale |
+| --- | --- | --- |
+| Input format | Mono, 16 kHz | The selected Wav2Vec2 model was trained for 16 kHz speech, so uploaded audio is mixed to mono and resampled before inference. |
+| Python runtime | Python 3.11 | The selected PyTorch, Transformers, librosa, and FastAPI versions have stable compatible releases for this interpreter. |
+| PyTorch build | CPU-only | The target EC2 instance has no GPU, so CUDA libraries and GPU runtime requirements are unnecessary. |
+| Audio decoder | FFmpeg | FFmpeg provides reliable MP3 decoding before librosa performs mono conversion and resampling. |
+| Runtime user | Unprivileged `asr` user | A compromised API process does not receive root permissions inside the container. |
+| Memory limit | 5 GiB | Wav2Vec2 weights, PyTorch tensors, decoded audio, inference activations, and Python runtime memory can coexist during a request. The limit provides inference headroom while placing a ceiling on the largest service in the shared 8 GiB host. It is a maximum, not permanently reserved memory. |
+| CPU limit | 2 CPUs | The EC2 instance provides two vCPUs and inference is CPU-only, so the service can use the available compute capacity while Docker still schedules the other lightweight services. |
+
+### Elasticsearch
+
+| Choice | Value | Rationale |
+| --- | --- | --- |
+| Cluster placement | Two containers on one EC2 host | This satisfies the two-node container requirement for the assessment, although it does not provide host-level high availability. |
+| JVM heap per node | 512 MiB fixed minimum and maximum | The index contains only 4,076 documents and does not require a large search or aggregation heap. A fixed heap provides predictable use and avoids JVM heap resizing. |
+| Container memory per node | 1.5 GiB | Elasticsearch uses native memory, thread stacks, direct buffers, and the operating-system file cache outside the JVM heap. The additional capacity supports these requirements while keeping both nodes within the host budget. |
+| Primary shards | 1 | One primary shard is sufficient for the small assessment index and avoids unnecessary shard overhead. |
+| Replicas | 1 | One replica places a second copy on the other Elasticsearch node and allows the expected two-node cluster to reach green health. |
+| `vm.max_map_count` | `262144` | Elasticsearch uses many memory-mapped regions for Lucene index files. This value satisfies the host prerequisite and allows both nodes to start reliably on Ubuntu. |
+
+### Search UI interpretation
+
+| Field | Search UI behavior | Rationale |
+| --- | --- | --- |
+| `generated_text` | Analyzed full-text search | Users enter words and phrases from generated transcriptions. |
+| `duration` | Numeric range filter | Duration is numeric metadata and is most useful for intervals such as 5 to 10 seconds. |
+| `age` | Exact-value filter | Age values are categorical metadata. |
+| `gender` | Exact-value filter | Gender values are categorical metadata. |
+| `accent` | Exact-value, filterable facet | Accent values are categorical metadata and benefit from facet-value filtering. |
+
+This interpretation allows users to query and narrow results using all five
+required fields without applying text analysis to numeric or categorical
+metadata.
+
+| Choice | Value | Rationale |
+| --- | --- | --- |
+| Client connector | Elastic `ApiProxyConnector` | Browser searches are sent only to the application-owned `/api` endpoint. |
+| Server connector | `ElasticsearchAPIConnector` | The Express server owns the Elasticsearch connection and query execution. |
+| Query configuration | Server-owned | Elasticsearch hostname, future credentials, searchable fields, result fields, and permitted facets remain controlled by the server rather than trusted to the browser. |
+| Container memory | 512 MiB | The container serves a compiled React bundle and one lightweight Express process. The limit covers Node.js, HTTP handling, and short-lived search responses without materially competing with ASR and Elasticsearch. |
+
+### AWS deployment resources
+
+| Resource | Value | Rationale |
+| --- | --- | --- |
+| EC2 instance | `m7i-flex.large` | It is a credit-eligible general-purpose instance that can host the complete assessment stack on one machine. |
+| vCPUs | 2 | The two vCPUs provide the compute used by CPU-only ASR inference while also scheduling Elasticsearch, Search UI, Docker, and Ubuntu. |
+| Physical RAM | 8 GiB | This accommodates the model, two deliberately constrained Elasticsearch nodes, Search UI, Docker, and Ubuntu for the assessment workload. |
+| Operating system | Ubuntu 24.04 LTS | It is a current long-term-support release with security updates and supported Docker packages. |
+| Host swap | 8 GiB | Concurrent model loading, Elasticsearch startup, and Docker builds can temporarily approach physical-RAM capacity. Swap supplies emergency backing memory to reduce out-of-memory termination risk; it is not intended as normal working memory. |
+| EBS capacity | 40 GiB | The disk stores Ubuntu, Docker images and build layers, Python and Node dependencies, the approximately 1.2 GB ASR model cache, the repository, logs, and both Elasticsearch data volumes, with working space for extraction and updates. |
+| EBS type | `gp3` | General-purpose SSD performance suits model loading, Docker builds, and the small-index read/write workload. |
+| EBS performance | 3,000 IOPS and 125 MiB/s | The gp3 baseline provides predictable performance without adding provisioned-performance cost. |
+| Persistent volumes | `htx-asr-model-cache`, `htx-es01-data`, `htx-es02-data` | Each stateful owner has an independent lifecycle. Model files and both Elasticsearch nodes' data survive container and EC2 restarts. |
+
+These values form a credit-conscious, single-instance budget suitable for the
+4,076-record dataset and light demonstration traffic. They are not intended
+for production-scale performance or high availability.
 
 ## Security
 
