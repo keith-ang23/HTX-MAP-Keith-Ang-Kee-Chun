@@ -6,8 +6,14 @@ AWS deployment design for the HTX xData technical assessment.
 
 ## Current status
 
-Repository and Python environment setup are complete. The ASR service
-provides health-check and Wav2Vec2 transcription endpoints.
+All assessment components are implemented:
+
+- FastAPI ASR service using `facebook/wav2vec2-large-960h`
+- resumable Common Voice batch transcription
+- two-node Elasticsearch backend and repeatable bulk indexer
+- React Search UI with an Express Elasticsearch proxy
+- root Docker Compose deployment for the complete stack
+- AWS EC2 deployment with persistent data and container restart policies
 
 ## Prerequisites
 
@@ -52,16 +58,15 @@ python -c "import sys; print(sys.executable)"
 
 ```text
 .
-|-- asr/                 # ASR API, batch decoder, and container definition
-|-- deployment-design/   # AWS architecture source and exported PDF
-|-- elastic-backend/     # Two-node Elasticsearch cluster and indexing script
-|-- search-ui/           # Search frontend and container definition
-|-- requirements.txt     # Pinned Python dependencies
-`-- README.md
+|-- asr/                  # ASR API, batch decoder, tests, and container files
+|-- deployment-design/    # AWS architecture design PDF
+|-- elastic-backend/      # Elasticsearch cluster, CSV, indexer, and tests
+|-- search-ui/            # React UI, Express proxy, tests, and container files
+|-- .env.example          # Environment-variable template
+|-- docker-compose.yml    # Complete four-container deployment
+|-- requirements.txt      # Pinned Python dependencies
+`-- README.md              # Setup, operation, testing, and deployment guide
 ```
-
-Directories beyond `asr/` will be added as their assessment tasks are
-implemented.
 
 ## ASR API
 
@@ -291,12 +296,10 @@ docker compose -f asr/docker-compose.yml down --volumes
 
 | Service | Local URL | Purpose |
 | --- | --- | --- |
-| ASR health check | `http://localhost:8001/ping` | Implemented |
-| ASR inference | `http://localhost:8001/asr` | Implemented |
-| Elasticsearch | `http://localhost:9200` | Store Common Voice records |
+| ASR health check | `http://localhost:8001/ping` | Confirm model service health |
+| ASR inference | `http://localhost:8001/asr` | Transcribe multipart MP3 uploads |
+| Elasticsearch | `http://localhost:9200` | Store and query Common Voice records |
 | Search UI | `http://localhost:3000` | Search and filter transcriptions |
-
-Run instructions and verified curl examples will be added with each service.
 
 ## Dataset
 
@@ -327,7 +330,8 @@ Expected result:
 ```
 
 Raw MP3 files remain ignored by Git. The final `cv-valid-dev.csv`, including
-the generated `generated_text` column, will be kept as a submission artifact.
+the generated `generated_text` column, is tracked as a submission artifact in
+both the ASR and Elasticsearch directories.
 
 ### Batch transcription
 
@@ -775,6 +779,22 @@ shared `htx-stack-network`:
 - Two-node Elasticsearch cluster at `http://localhost:9200`
 - Search UI and server-side proxy at `http://localhost:3000`
 
+Create the active environment configuration:
+
+```bash
+cp .env.example .env
+```
+
+The defaults are:
+
+```ini
+ASR_MODEL_ID=facebook/wav2vec2-large-960h
+ELASTICSEARCH_INDEX=cv-transcriptions
+```
+
+`.env.example` is committed as a configuration template. The active `.env`
+file is machine-specific and excluded from Git.
+
 Start and build the complete stack from the repository root:
 
 ```bash
@@ -782,9 +802,36 @@ docker compose up --build -d
 docker compose ps
 ```
 
+If the images have already been built, start without rebuilding:
+
+```bash
+docker compose up -d --no-build
+```
+
 The Compose file reuses the named ASR model-cache and Elasticsearch data
 volumes, so restarting the stack does not normally download the model or erase
-the index.
+the index. Each service uses `restart: unless-stopped`, allowing Docker to
+restart the containers after an EC2 or host reboot.
+
+The Elasticsearch containers start without an application index on a fresh
+machine. Create and populate `cv-transcriptions` after the cluster is healthy:
+
+```bash
+python elastic-backend/cv-index.py
+```
+
+Verify the integrated stack:
+
+```bash
+docker compose ps
+curl "http://localhost:8001/ping"
+curl "http://localhost:3000/api/health"
+curl "http://localhost:9200/_cluster/health?pretty"
+curl "http://localhost:9200/cv-transcriptions/_count?pretty"
+```
+
+Expected results include four healthy containers, two Elasticsearch nodes, and
+4,076 indexed documents.
 
 Stop the stack while retaining the model and index data:
 
@@ -795,10 +842,32 @@ docker compose down
 Do not add `--volumes` unless you deliberately want to delete the downloaded
 model cache and both Elasticsearch data volumes.
 
+## Test suites
+
+Run all Python unit tests from the repository root:
+
+```bash
+python -m pytest -q
+```
+
+Run the Search UI proxy tests:
+
+```bash
+cd search-ui
+npm install
+npm test
+```
+
+The implemented suites cover ASR request handling and cleanup, batch decoding,
+Elasticsearch document conversion and indexing behavior, and Search UI proxy
+request sanitization.
+
 ## Public Deployment
 
-The solution will be deployed to AWS using self-managed containers. Managed
-cloud services will not be used.
+The solution is deployed on an Ubuntu 24.04 AWS EC2 instance using the root
+Compose stack. It uses a 40 GiB gp3 EBS volume, host swap, persistent Docker
+volumes, and `vm.max_map_count=262144` for Elasticsearch. Elasticsearch port
+`9200` is bound to loopback and is not exposed by the EC2 security group.
 
 Search UI:
 
@@ -807,6 +876,36 @@ http://13.251.154.217:3000
 ASR API health check:
 
 http://13.251.154.217:8001/ping
+
+The public endpoints are available only while the EC2 instance and containers
+are running. If the instance uses an auto-assigned public IP instead of an
+Elastic IP, this URL must be updated after an EC2 stop/start cycle.
+
+### EC2 startup and reboot verification
+
+After starting or rebooting EC2:
+
+```bash
+cd ~/HTX-MAP-Keith-Ang-Kee-Chun
+docker compose ps
+```
+
+Docker is enabled as a system service and the Compose services use
+`restart: unless-stopped`, so existing containers return automatically after a
+reboot. Verify the recovered deployment with:
+
+```bash
+curl "http://localhost:8001/ping"
+curl "http://localhost:3000/api/health"
+curl "http://localhost:9200/cv-transcriptions/_count?pretty"
+```
+
+If the containers were manually stopped with `docker compose stop` before the
+EC2 instance was stopped, resume them with:
+
+```bash
+docker compose start
+```
 
 ## Assessment assumptions
 
