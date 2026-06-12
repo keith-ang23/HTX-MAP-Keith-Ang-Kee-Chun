@@ -14,8 +14,10 @@ import "@elastic/react-search-ui-views/lib/styles/styles.css";
 import { SEARCH_QUERY_CONFIG } from "../search-config.js";
 import "./styles.css";
 
+// The browser talks only to Express at /api, never directly to Elasticsearch.
 const connector = new ApiProxyConnector({ basePath: "/api" });
 
+// SearchProvider owns query state, URL synchronization, and API requests.
 const searchConfig = {
   apiConnector: connector,
   searchQuery: SEARCH_QUERY_CONFIG,
@@ -25,10 +27,12 @@ const searchConfig = {
 };
 
 function raw(result, field, fallback = "") {
+  // Elastic Search UI wraps returned values in { raw, snippet } objects.
   return result?.[field]?.raw ?? fallback;
 }
 
 function ResultCard({ result }) {
+  // Normalize optional fields before rendering a stable card layout.
   const generatedText = raw(result, "generated_text", "(No transcription)");
   const filename = raw(result, "filename", "Unknown audio file");
   const duration = Number(raw(result, "duration", 0)).toFixed(1);
@@ -55,6 +59,7 @@ function ResultCard({ result }) {
 }
 
 function SearchResults() {
+  // WithSearch selects only the state needed by this result presentation.
   return (
     <WithSearch
       mapContextToProps={({
@@ -90,6 +95,7 @@ function SearchResults() {
         totalResults,
         wasSearched
       }) => {
+        // Render mutually exclusive feedback states before normal results.
         if (error) {
           return (
             <div className="state-panel state-panel--error" role="alert">
@@ -160,6 +166,7 @@ function Filters() {
           )}
         </WithSearch>
       </div>
+      {/* Search UI generates facet controls from the server-owned config. */}
       <Facet field="duration" label="Duration" filterType="any" />
       <Facet field="age" label="Age" filterType="any" />
       <Facet field="gender" label="Gender" filterType="any" />
@@ -169,6 +176,7 @@ function Filters() {
 }
 
 function App() {
+  // ErrorBoundary prevents connector/render failures from blanking the page.
   return (
     <SearchProvider config={searchConfig}>
       <ErrorBoundary>
@@ -185,6 +193,7 @@ function App() {
 
         <main className="page-shell">
           <section className="search-panel" aria-label="Transcription search">
+            {/* Submit explicitly instead of querying on every keystroke. */}
             <SearchBox
               searchAsYouType={false}
               shouldClearFilters={false}
@@ -207,6 +216,7 @@ function App() {
   );
 }
 
+// Mount the React application into the div supplied by index.html.
 createRoot(document.getElementById("root")).render(
   <React.StrictMode>
     <App />

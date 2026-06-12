@@ -1,6 +1,9 @@
+# Docker installs dependencies and builds assets inside the image.
 node_modules
 dist
 npm-debug.log
+
+# Local environment values and tests are not needed in the production image.
 .env
 .env.*
 server.test.js

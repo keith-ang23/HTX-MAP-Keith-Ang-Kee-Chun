@@ -1,3 +1,4 @@
+# Python 3.11 matches the supported versions of the ASR dependency stack.
 FROM python:3.11-slim
 
 # Prevent Python from buffering logs and writing bytecode inside the container.
@@ -30,9 +31,12 @@ RUN useradd --create-home --uid 10001 asr \
 
 USER asr
 
+# Document the public inference port used by Uvicorn and Compose.
 EXPOSE 8001
 
+# Report healthy only after the FastAPI process can answer its lightweight endpoint.
 HEALTHCHECK --interval=30s --timeout=5s --start-period=5m --retries=3 \
     CMD curl --fail --silent http://localhost:8001/ping > /dev/null || exit 1
 
+# Listen on all container interfaces so Docker can publish the API to the host.
 CMD ["uvicorn", "asr_api:app", "--host", "0.0.0.0", "--port", "8001"]

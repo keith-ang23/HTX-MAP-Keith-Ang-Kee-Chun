@@ -11,6 +11,7 @@ import pytest
 
 
 def load_decoder_module() -> ModuleType:
+    """Import the hyphenated script by path so its functions can be tested."""
     module_path = Path(__file__).with_name("cv-decode.py")
     spec = importlib.util.spec_from_file_location("cv_decode", module_path)
     assert spec is not None
@@ -24,6 +25,7 @@ cv_decode = load_decoder_module()
 
 
 def write_test_csv(csv_path: Path) -> None:
+    """Create the smallest source CSV accepted by the batch decoder."""
     with csv_path.open("w", encoding="utf-8", newline="") as csv_file:
         writer = csv.DictWriter(
             csv_file,
@@ -43,12 +45,14 @@ def test_decode_dataset_adds_generated_text_and_duration(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
+    """A pending row should receive both API fields and be saved to disk."""
     audio_dir = tmp_path / "cv-valid-dev"
     audio_dir.mkdir()
     (audio_dir / "sample-000000.mp3").write_bytes(b"audio")
     csv_path = audio_dir / "cv-valid-dev.csv"
     write_test_csv(csv_path)
 
+    # Replace the HTTP upload with a deterministic response.
     monkeypatch.setattr(
         cv_decode,
         "transcribe_file",
@@ -79,6 +83,7 @@ def test_decode_dataset_resumes_completed_rows(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
+    """Rows with generated text should be skipped on a resumed run."""
     audio_dir = tmp_path / "cv-valid-dev"
     audio_dir.mkdir()
     csv_path = audio_dir / "cv-valid-dev.csv"
@@ -89,6 +94,7 @@ def test_decode_dataset_resumes_completed_rows(
     cv_decode.save_csv_atomic(csv_path, rows, fieldnames)
 
     def unexpected_call(**kwargs: object) -> tuple[str, str]:
+        """Fail the test if resume logic contacts the API unnecessarily."""
         raise AssertionError("Completed rows must not call the API.")
 
     monkeypatch.setattr(cv_decode, "transcribe_file", unexpected_call)
@@ -112,6 +118,7 @@ def test_decode_dataset_treats_empty_model_output_as_completed(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
+    """A duration proves that an empty CTC transcription was already processed."""
     audio_dir = tmp_path / "cv-valid-dev"
     audio_dir.mkdir()
     csv_path = audio_dir / "cv-valid-dev.csv"
@@ -123,6 +130,7 @@ def test_decode_dataset_treats_empty_model_output_as_completed(
     cv_decode.save_csv_atomic(csv_path, rows, fieldnames)
 
     def unexpected_call(**kwargs: object) -> tuple[str, str]:
+        """Fail if a valid empty model output is incorrectly retried."""
         raise AssertionError("A completed empty model result must not be retried.")
 
     monkeypatch.setattr(cv_decode, "transcribe_file", unexpected_call)
@@ -143,6 +151,7 @@ def test_decode_dataset_treats_empty_model_output_as_completed(
 
 
 def test_resolve_audio_path_handles_csv_directory_prefix(tmp_path: Path) -> None:
+    """CSV paths prefixed with cv-valid-dev should resolve without duplication."""
     audio_dir = tmp_path / "cv-valid-dev"
     audio_dir.mkdir()
     expected = audio_dir / "sample-000000.mp3"

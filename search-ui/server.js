@@ -9,10 +9,12 @@ import {
   SEARCH_QUERY_CONFIG
 } from "./search-config.js";
 
+// ES modules do not expose __dirname, so derive it for the production dist path.
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const DEFAULT_PORT = 3000;
 
 export function sanitizeSearchState(state = {}) {
+  // Accept only bounded pagination values controlled by this application.
   const current = Number.isInteger(state.current) && state.current > 0
     ? state.current
     : 1;
@@ -22,6 +24,8 @@ export function sanitizeSearchState(state = {}) {
   const searchTerm = typeof state.searchTerm === "string"
     ? state.searchTerm.slice(0, 200)
     : "";
+  // Discard unknown fields and cap values so the browser cannot construct
+  // arbitrary Elasticsearch queries through the proxy.
   const filters = Array.isArray(state.filters)
     ? state.filters
         .filter(
@@ -55,10 +59,15 @@ export function createApp({
   elasticsearchHost,
   elasticsearchIndex
 }) {
+  // Dependency injection keeps the Express routes independently testable.
   const app = express();
+  // Avoid advertising the Express implementation in HTTP response headers.
   app.disable("x-powered-by");
+  // Search requests are small JSON objects; reject unexpectedly large bodies.
   app.use(express.json({ limit: "256kb" }));
 
+  // Report application health only when the private Elasticsearch dependency
+  // can assign its primary shards.
   app.get("/api/health", async (_request, response) => {
     try {
       const healthResponse = await fetch(
@@ -84,6 +93,8 @@ export function createApp({
 
   app.post("/api/search", async (request, response) => {
     try {
+      // Ignore any browser-provided query configuration and use the server's
+      // approved fields, facets, and result schema.
       const state = sanitizeSearchState(request.body?.state);
       const result = await connector.onSearch(state, SEARCH_QUERY_CONFIG);
       response.json(result);
@@ -95,8 +106,10 @@ export function createApp({
     }
   });
 
+  // Serve the Vite production build from the same process as the API proxy.
   const distPath = path.join(__dirname, "dist");
   app.use(express.static(distPath));
+  // Send index.html for client-side routes while leaving /api errors intact.
   app.use((request, response, next) => {
     if (request.method !== "GET" || request.path.startsWith("/api/")) {
       next();
@@ -109,12 +122,14 @@ export function createApp({
 }
 
 export function startServer() {
+  // Environment variables let Docker address Elasticsearch by its service name.
   const port = Number(process.env.PORT || DEFAULT_PORT);
   const elasticsearchHost =
     process.env.ELASTICSEARCH_HOST || "http://localhost:9200";
   const elasticsearchIndex =
     process.env.ELASTICSEARCH_INDEX || "cv-transcriptions";
 
+  // This connector runs server-side, keeping Elasticsearch off the public web.
   const connector = new ElasticsearchAPIConnector({
     host: elasticsearchHost,
     index: elasticsearchIndex
@@ -130,6 +145,8 @@ export function startServer() {
   });
 }
 
+// Start listening only when this file is executed directly, not when tests
+// import createApp or sanitizeSearchState.
 const isEntrypoint =
   process.argv[1] &&
   import.meta.url === pathToFileURL(path.resolve(process.argv[1])).href;

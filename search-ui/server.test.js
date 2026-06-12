@@ -5,6 +5,7 @@ import request from "supertest";
 import { createApp, sanitizeSearchState } from "./server.js";
 
 test("sanitizeSearchState allows only approved search fields and limits", () => {
+  // Deliberately send oversized and unauthorized values.
   const state = sanitizeSearchState({
     current: 2,
     resultsPerPage: 1000,
@@ -24,6 +25,7 @@ test("sanitizeSearchState allows only approved search fields and limits", () => 
 });
 
 test("POST /api/search uses the server-owned query configuration", async () => {
+  // Capture arguments without requiring a running Elasticsearch cluster.
   let capturedState;
   let capturedConfig;
   const connector = {
@@ -53,6 +55,7 @@ test("POST /api/search uses the server-owned query configuration", async () => {
         resultsPerPage: 20,
         filters: []
       },
+      // This malicious client configuration must be ignored by the server.
       queryConfig: {
         search_fields: {
           unauthorized_field: {}
@@ -60,6 +63,7 @@ test("POST /api/search uses the server-owned query configuration", async () => {
       }
     });
 
+  // The approved generated_text configuration must reach the connector.
   assert.equal(response.status, 200);
   assert.equal(capturedState.searchTerm, "hello");
   assert.deepEqual(Object.keys(capturedConfig.search_fields), ["generated_text"]);

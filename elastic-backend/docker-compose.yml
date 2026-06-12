@@ -1,8 +1,11 @@
+# Standalone two-node Elasticsearch cluster used to develop and verify indexing.
 services:
+  # The first node exposes Elasticsearch only to this machine through loopback.
   es01:
     image: docker.elastic.co/elasticsearch/elasticsearch:8.19.2
     container_name: es01
     environment:
+      # Both nodes share these discovery settings and form one named cluster.
       - node.name=es01
       - cluster.name=cv-elasticsearch-cluster
       - discovery.seed_hosts=es02
@@ -38,6 +41,7 @@ services:
     networks:
       - elastic
 
+  # The second node participates in discovery but does not publish port 9200.
   es02:
     image: docker.elastic.co/elasticsearch/elasticsearch:8.19.2
     container_name: es02
@@ -75,12 +79,14 @@ services:
     networks:
       - elastic
 
+# Separate data volumes keep each node's shard data across restarts.
 volumes:
   es01-data:
     name: htx-es01-data
   es02-data:
     name: htx-es02-data
 
+# The explicit network name is reused by the standalone Search UI stack.
 networks:
   elastic:
     name: htx-elastic-network

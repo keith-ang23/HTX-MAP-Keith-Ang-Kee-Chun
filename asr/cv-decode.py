@@ -11,6 +11,8 @@ from typing import Any
 
 import requests
 
+# Defaults are resolved relative to this file so the script works from any
+# current working directory.
 DEFAULT_API_URL = os.getenv("ASR_API_URL", "http://localhost:8001/asr")
 DEFAULT_DATASET_DIR = Path(__file__).resolve().parent / "cv-valid-dev"
 DEFAULT_CSV_PATH = DEFAULT_DATASET_DIR / "cv-valid-dev.csv"
@@ -23,6 +25,7 @@ class TranscriptionError(RuntimeError):
 
 def parse_args() -> argparse.Namespace:
     """Read command-line options for the batch transcription job."""
+    # argparse provides validation, generated help text, and named attributes.
     parser = argparse.ArgumentParser(
         description=(
             "Call the ASR API for Common Voice MP3 files and write each "
@@ -80,6 +83,7 @@ def parse_args() -> argparse.Namespace:
 
 def load_csv(csv_path: Path) -> tuple[list[dict[str, str]], list[str]]:
     """Load all CSV rows while preserving the original column order."""
+    # Validate the source before attempting any API requests.
     if not csv_path.is_file():
         raise FileNotFoundError(f"CSV file not found: {csv_path}")
 
@@ -93,6 +97,7 @@ def load_csv(csv_path: Path) -> tuple[list[dict[str, str]], list[str]]:
         fieldnames = list(reader.fieldnames)
         rows = [dict(row) for row in reader]
 
+    # Older source CSVs do not contain the assessment's generated column.
     if GENERATED_TEXT_COLUMN not in fieldnames:
         fieldnames.append(GENERATED_TEXT_COLUMN)
         for row in rows:
@@ -103,6 +108,8 @@ def load_csv(csv_path: Path) -> tuple[list[dict[str, str]], list[str]]:
 
 def resolve_audio_path(filename: str, audio_dir: Path) -> Path:
     """Map a CSV filename to its extracted MP3 without duplicating directories."""
+    # The supplied CSV may store either a basename or a cv-valid-dev-prefixed
+    # path, so try each valid layout without relying on string replacement.
     csv_path = Path(filename)
     candidates = [
         audio_dir / csv_path.name,
@@ -121,6 +128,7 @@ def resolve_audio_path(filename: str, audio_dir: Path) -> Path:
 
 def validate_api_response(payload: Any) -> tuple[str, str]:
     """Validate and extract the fields required from an ASR API response."""
+    # Reject malformed responses immediately rather than writing partial rows.
     if not isinstance(payload, dict):
         raise ValueError("ASR API returned a non-object JSON response.")
 
@@ -144,6 +152,7 @@ def transcribe_file(
     """Upload one MP3 and retry transient request failures with backoff."""
     last_error: Exception | None = None
 
+    # Reopen the file for every attempt because requests consumes the stream.
     for attempt in range(1, retries + 1):
         try:
             with audio_path.open("rb") as audio_file:
@@ -157,6 +166,7 @@ def transcribe_file(
         except (OSError, ValueError, requests.RequestException) as error:
             last_error = error
             if attempt < retries:
+                # Exponential delays reduce immediate pressure on a recovering API.
                 delay = 2 ** (attempt - 1)
                 print(
                     f"  Attempt {attempt}/{retries} failed for "
@@ -176,6 +186,8 @@ def save_csv_atomic(
     fieldnames: list[str],
 ) -> None:
     """Write a complete checkpoint and atomically replace the previous CSV."""
+    # A sibling temporary file prevents an interruption from leaving a
+    # half-written CSV that cannot be resumed.
     temporary_path = csv_path.with_suffix(f"{csv_path.suffix}.tmp")
 
     with temporary_path.open("w", encoding="utf-8", newline="") as csv_file:
@@ -201,6 +213,7 @@ def decode_dataset(
     overwrite: bool,
 ) -> tuple[int, list[str]]:
     """Transcribe pending CSV rows, checkpoint progress, and return failures."""
+    # Fail on invalid controls before opening files or making HTTP requests.
     if checkpoint_every < 1:
         raise ValueError("--checkpoint-every must be at least 1.")
     if retries < 1:
@@ -212,6 +225,8 @@ def decode_dataset(
     audio_dir = audio_dir.resolve()
     rows, fieldnames = load_csv(csv_path)
 
+    # A valid duration marks an empty model transcription as complete. This
+    # preserves genuine empty CTC output instead of retrying it forever.
     pending_indexes = [
         index
         for index, row in enumerate(rows)
@@ -233,6 +248,7 @@ def decode_dataset(
     failures: list[str] = []
 
     try:
+        # One Session reuses TCP connections across thousands of uploads.
         with requests.Session() as session:
             for position, row_index in enumerate(pending_indexes, start=1):
                 row = rows[row_index]
@@ -259,6 +275,7 @@ def decode_dataset(
                     failures.append(f"{filename}: {error}")
                     print(f"[{position}/{len(pending_indexes)}] ERROR: {error}")
 
+                # Persist progress regularly so a long run can resume safely.
                 if successes_since_checkpoint >= checkpoint_every:
                     save_csv_atomic(csv_path, rows, fieldnames)
                     successes_since_checkpoint = 0

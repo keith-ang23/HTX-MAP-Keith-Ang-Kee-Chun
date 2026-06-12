@@ -11,6 +11,7 @@ import pytest
 
 
 def load_indexer_module() -> ModuleType:
+    """Import the hyphenated indexer script as a testable Python module."""
     module_path = Path(__file__).with_name("cv-index.py")
     spec = importlib.util.spec_from_file_location("cv_index", module_path)
     assert spec is not None
@@ -24,6 +25,7 @@ cv_index = load_indexer_module()
 
 
 def write_csv(path: Path, rows: list[dict[str, str]]) -> None:
+    """Write rows using the exact schema required by the indexer."""
     with path.open("w", encoding="utf-8", newline="") as csv_file:
         writer = csv.DictWriter(
             csv_file,
@@ -44,6 +46,7 @@ def write_csv(path: Path, rows: list[dict[str, str]]) -> None:
 
 
 def valid_row() -> dict[str, str]:
+    """Return one representative Common Voice source row."""
     return {
         "filename": "cv-valid-dev/sample-000000.mp3",
         "text": "reference text",
@@ -58,6 +61,7 @@ def valid_row() -> dict[str, str]:
 
 
 def test_load_documents_converts_mapped_types(tmp_path: Path) -> None:
+    """CSV strings should become values matching the explicit ES mapping."""
     csv_path = tmp_path / "cv-valid-dev.csv"
     write_csv(csv_path, [valid_row()])
 
@@ -79,6 +83,7 @@ def test_load_documents_converts_mapped_types(tmp_path: Path) -> None:
 
 
 def test_blank_filter_values_become_null(tmp_path: Path) -> None:
+    """Missing demographics should not create empty facet values."""
     row = valid_row()
     row.update({"age": "", "gender": " ", "accent": ""})
     csv_path = tmp_path / "cv-valid-dev.csv"
@@ -92,6 +97,7 @@ def test_blank_filter_values_become_null(tmp_path: Path) -> None:
 
 
 def test_document_id_is_stable_and_filename_specific() -> None:
+    """Filename hashes should be repeatable and unique across source files."""
     first = cv_index.deterministic_document_id("sample-000001.mp3")
     repeat = cv_index.deterministic_document_id("sample-000001.mp3")
     second = cv_index.deterministic_document_id("sample-000002.mp3")
@@ -102,6 +108,7 @@ def test_document_id_is_stable_and_filename_specific() -> None:
 
 
 def test_duplicate_filename_is_rejected(tmp_path: Path) -> None:
+    """Duplicate source identities must not silently overwrite one another."""
     csv_path = tmp_path / "cv-valid-dev.csv"
     row = valid_row()
     write_csv(csv_path, [row, row])
@@ -111,6 +118,7 @@ def test_duplicate_filename_is_rejected(tmp_path: Path) -> None:
 
 
 def test_mapping_uses_required_search_and_filter_types() -> None:
+    """The index schema must match the assessment's search and filter behavior."""
     properties = cv_index.INDEX_DEFINITION["mappings"]["properties"]
 
     assert properties["generated_text"]["type"] == "text"

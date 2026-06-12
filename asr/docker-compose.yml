@@ -1,3 +1,4 @@
+# Standalone ASR deployment for developing and testing the inference API.
 services:
   asr-api:
     build:
@@ -8,11 +9,13 @@ services:
     ports:
       - "8001:8001"
     environment:
+      # Store downloaded model files in the mounted cache and use regular HTTP transfers.
       ASR_MODEL_ID: facebook/wav2vec2-large-960h
       ASR_MODEL_CACHE_DIR: /app/model_cache
       HF_HUB_DISABLE_XET: "1"
     volumes:
       - asr-model-cache:/app/model_cache
+    # The long start period allows the large model to download and initialize.
     healthcheck:
       test: ["CMD", "curl", "--fail", "--silent", "http://localhost:8001/ping"]
       interval: 30s
@@ -24,6 +27,7 @@ services:
     mem_reservation: 3g
     cpus: 4
 
+# This named volume survives container replacement and prevents repeat model downloads.
 volumes:
   asr-model-cache:
     name: htx-asr-model-cache

@@ -1,3 +1,4 @@
+/* Global theme and element normalization. */
 :root {
   color: #17202a;
   background: #f4f6f8;
@@ -23,6 +24,7 @@ input {
   font: inherit;
 }
 
+/* Header introduces the assessment and creates the dark visual anchor. */
 .site-header {
   color: #fff;
   background: #172b4d;
@@ -30,6 +32,7 @@ input {
 }
 
 .site-header > div,
+/* Main shell overlaps the header so the search box appears elevated. */
 .page-shell {
   width: min(1160px, 100%);
   margin: 0 auto;
@@ -75,6 +78,7 @@ input {
   padding: 1rem;
 }
 
+/* Adapt Elastic Search UI's built-in search-box classes to this layout. */
 .search-panel .sui-search-box {
   margin: 0;
 }
@@ -97,6 +101,7 @@ input {
   margin-top: 1.5rem;
 }
 
+/* Facet sidebar stays visible during desktop scrolling. */
 .filters {
   position: sticky;
   top: 1rem;
@@ -141,6 +146,7 @@ input {
   font-size: 0.9rem;
 }
 
+/* Search result summary, cards, and metadata presentation. */
 .results-summary {
   display: flex;
   justify-content: space-between;
@@ -206,6 +212,7 @@ input {
   background: #f1f2f4;
 }
 
+/* Shared loading, empty, and error feedback panels. */
 .state-panel {
   min-height: 210px;
   display: grid;
@@ -235,6 +242,7 @@ input {
   animation: spin 0.8s linear infinite;
 }
 
+/* Center the pagination supplied by Elastic Search UI. */
 .pagination {
   display: flex;
   justify-content: center;
@@ -247,6 +255,7 @@ input {
   }
 }
 
+/* Collapse the sidebar above the results on narrow screens. */
 @media (max-width: 760px) {
   .site-header {
     padding-top: 1.8rem;

@@ -1,3 +1,4 @@
+# Standalone Search UI deployment that joins the existing Elasticsearch network.
 services:
   search-ui:
     build:
@@ -6,6 +7,7 @@ services:
     image: htx-search-ui:latest
     container_name: search-ui
     environment:
+      # The browser calls this service; only the server-side proxy contacts Elasticsearch.
       PORT: "3000"
       ELASTICSEARCH_HOST: http://es01:9200
       ELASTICSEARCH_INDEX: cv-transcriptions
@@ -30,6 +32,7 @@ services:
     networks:
       - elastic
 
+# Mark the network external because the Elasticsearch Compose project creates it.
 networks:
   elastic:
     external: true

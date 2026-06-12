@@ -1,4 +1,6 @@
+# Integrated local and EC2 deployment for every assessment service.
 services:
+  # Public inference API; the model cache avoids downloading weights on every start.
   asr-api:
     container_name: asr-api
     image: htx-asr-api:latest
@@ -24,6 +26,7 @@ services:
     networks:
       - htx-stack
 
+  # First Elasticsearch node and the only node bound to the host loopback interface.
   es01:
     container_name: es01
     image: docker.elastic.co/elasticsearch/elasticsearch:8.19.2
@@ -59,6 +62,7 @@ services:
     networks:
       - htx-stack
 
+  # Second Elasticsearch node supplies cluster redundancy without a public host port.
   es02:
     container_name: es02
     image: docker.elastic.co/elasticsearch/elasticsearch:8.19.2
@@ -92,6 +96,7 @@ services:
     networks:
       - htx-stack
 
+  # React application and its Express proxy, started after both search nodes are healthy.
   search-ui:
     container_name: search-ui
     image: htx-search-ui:latest
@@ -126,6 +131,7 @@ services:
     networks:
       - htx-stack
 
+# Named volumes preserve model weights and indexed documents across container restarts.
 volumes:
   asr-model-cache:
     name: htx-asr-model-cache
@@ -134,6 +140,7 @@ volumes:
   es02-data:
     name: htx-es02-data
 
+# A shared bridge network lets containers resolve one another by service name.
 networks:
   htx-stack:
     name: htx-stack-network
